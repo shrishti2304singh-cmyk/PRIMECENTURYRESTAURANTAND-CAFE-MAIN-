@@ -62,6 +62,7 @@ export const INITIAL_SETTINGS: RestaurantSettings = {
   upiId: 'primecentury@upi',
   printerPaperWidth: '80mm',
   printerMode: 'auto',
+  logoUrl: '/logo.svg',
 };
 
 export const INITIAL_FLOORS: Floor[] = [

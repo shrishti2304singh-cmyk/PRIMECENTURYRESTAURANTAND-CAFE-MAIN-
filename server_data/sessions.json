@@ -134,5 +134,45 @@
     "name": "PRIMECENTURY RESTAURANT & CAFE",
     "role": "owner",
     "expiresAt": 1792175667193
+  },
+  {
+    "token": "eyJ1c2VySWQiOiJ1c3ItYWRtaW4iLCJ1c2VybmFtZSI6ImFkbWluIiwibmFtZSI6IlBSSU1FQ0VOVFVSWSBSRVNUQVVSQU5UICYgQ0FGRSIsInJvbGUiOiJvd25lciIsImV4cGlyZXNBdCI6MTc5MjE3NTcwMjY2OH0.gyFEkmIDpXwrbSGbVtOp2twXSKzWGi_3A8mCpgdMd1s",
+    "userId": "usr-admin",
+    "username": "admin",
+    "name": "PRIMECENTURY RESTAURANT & CAFE",
+    "role": "owner",
+    "expiresAt": 1792175702668
+  },
+  {
+    "token": "eyJ1c2VySWQiOiJ1c3ItMyIsInVzZXJuYW1lIjoiY2FzaGllciIsIm5hbWUiOiJBbWl0IEt1bWFyIiwicm9sZSI6ImNhc2hpZXIiLCJleHBpcmVzQXQiOjE3OTIyNTIwMDU3MTZ9.2qoGuU1a69G-5JVOWS9RBYc3HPDrO1A8n2O1V8KN0LE",
+    "userId": "usr-3",
+    "username": "cashier",
+    "name": "Amit Kumar",
+    "role": "cashier",
+    "expiresAt": 1792252005716
+  },
+  {
+    "token": "eyJ1c2VySWQiOiJ1c3ItYWRtaW4iLCJ1c2VybmFtZSI6ImFkbWluIiwibmFtZSI6IlBSSU1FQ0VOVFVSWSBSRVNUQVVSQU5UICYgQ0FGRSIsInJvbGUiOiJvd25lciIsImV4cGlyZXNBdCI6MTc5MjI1MjAwNTczNn0.1vnO0gG8dJVDL9sEOgu7anTdHGrwVLKY-g2dwvaUugs",
+    "userId": "usr-admin",
+    "username": "admin",
+    "name": "PRIMECENTURY RESTAURANT & CAFE",
+    "role": "owner",
+    "expiresAt": 1792252005736
+  },
+  {
+    "token": "eyJ1c2VySWQiOiJ1c3ItMyIsInVzZXJuYW1lIjoiY2FzaGllciIsIm5hbWUiOiJBbWl0IEt1bWFyIiwicm9sZSI6ImNhc2hpZXIiLCJleHBpcmVzQXQiOjE3OTIyNTIwMjE0MjF9.G6G4DdbrgydtDEr2rdSiBlp3PPIAfOd04ydGBsY8R88",
+    "userId": "usr-3",
+    "username": "cashier",
+    "name": "Amit Kumar",
+    "role": "cashier",
+    "expiresAt": 1792252021421
+  },
+  {
+    "token": "eyJ1c2VySWQiOiJ1c3ItYWRtaW4iLCJ1c2VybmFtZSI6ImFkbWluIiwibmFtZSI6IlBSSU1FQ0VOVFVSWSBSRVNUQVVSQU5UICYgQ0FGRSIsInJvbGUiOiJvd25lciIsImV4cGlyZXNBdCI6MTc5MjI1MjAyMTQ0NX0.zEIy83T1xiXAdG5dFbFXGj9Xdgo7ZxFHTdnzJQ27y18",
+    "userId": "usr-admin",
+    "username": "admin",
+    "name": "PRIMECENTURY RESTAURANT & CAFE",
+    "role": "owner",
+    "expiresAt": 1792252021445
   }
 ]

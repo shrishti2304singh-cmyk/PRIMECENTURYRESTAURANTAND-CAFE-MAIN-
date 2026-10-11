@@ -1,5 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import {
+  collection,
+  doc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+} from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType, testFirestoreConnection } from '../firebase';
+import {
   User,
   UserRole,
   Table,
@@ -63,11 +72,19 @@ interface POSContextType {
   login: (username: string, pass: string) => Promise<{ success: boolean; message?: string }>;
   quickLogin: (role: UserRole) => Promise<void> | void;
   logout: () => void;
-  deleteBill: (billId: string) => Promise<{ success: boolean; message?: string }>;
+  deleteBill: (
+    billId: string,
+    verification?: { ownerPassword?: string; reason?: string }
+  ) => Promise<{ success: boolean; message?: string }>;
   voidBill: (billId: string, reason?: string) => Promise<{ success: boolean; message?: string }>;
   activeView: AppView;
   setActiveView: (view: AppView) => void;
   hasPermission: (view: AppView) => boolean;
+
+  // Real-Time Cloud Synchronization
+  syncStatus: 'connected' | 'syncing' | 'offline' | 'error';
+  syncError: string | null;
+  lastSyncTime: Date | null;
 
   // Users Management
   users: User[];
@@ -332,6 +349,11 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeTableId, setActiveTableId] = useState<number | null>(1);
   const [billToPrint, setBillToPrint] = useState<Bill | null>(null);
   const [kotToPrint, setKotToPrint] = useState<KOT | null>(null);
+
+  // Real-Time Cloud Synchronization state
+  const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'offline' | 'error'>('syncing');
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
   // Bluetooth Thermal Printer state
   const [printerStatus, setPrinterStatus] = useState<PrinterStatus>(bluetoothPrinter.getStatus());
@@ -726,6 +748,152 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
+  // Real-Time Cloud Firestore Synchronizer across all devices (Mobile & PCs)
+  useEffect(() => {
+    // 1. Connection test on boot
+    testFirestoreConnection().then((connected) => {
+      setSyncStatus(connected ? 'connected' : 'offline');
+    });
+
+    // 2. Orders real-time listener
+    const unsubOrders = onSnapshot(
+      collection(db, 'orders'),
+      (snapshot) => {
+        const cloudOrders: Order[] = snapshot.docs.map((d) => d.data() as Order);
+        cloudOrders.sort((a, b) => (b.orderNumber || 0) - (a.orderNumber || 0));
+        setOrders(cloudOrders);
+        setSyncStatus('connected');
+        setSyncError(null);
+        setLastSyncTime(new Date());
+      },
+      (error) => {
+        console.error('Orders real-time sync error:', error);
+        setSyncStatus('error');
+        setSyncError(error.message);
+        handleFirestoreError(error, OperationType.LIST, 'orders');
+      }
+    );
+
+    // 3. KOTs real-time listener
+    const unsubKOTs = onSnapshot(
+      collection(db, 'kots'),
+      (snapshot) => {
+        const cloudKots: KOT[] = snapshot.docs.map((d) => d.data() as KOT);
+        cloudKots.sort((a, b) => (b.kotNumber || 0) - (a.kotNumber || 0));
+        setKots(cloudKots);
+        setSyncStatus('connected');
+        setSyncError(null);
+        setLastSyncTime(new Date());
+      },
+      (error) => {
+        console.error('KOTs real-time sync error:', error);
+        setSyncStatus('error');
+        setSyncError(error.message);
+        handleFirestoreError(error, OperationType.LIST, 'kots');
+      }
+    );
+
+    // 4. Bills real-time listener
+    const unsubBills = onSnapshot(
+      collection(db, 'bills'),
+      (snapshot) => {
+        const cloudBills: Bill[] = snapshot.docs.map((d) => d.data() as Bill);
+        cloudBills.sort(
+          (a, b) => new Date(b.paidAt || 0).getTime() - new Date(a.paidAt || 0).getTime()
+        );
+        setBills(cloudBills);
+        cloudBills.forEach((b) => pendingBillsRef.current.set(b.id, b));
+        setSyncStatus('connected');
+        setSyncError(null);
+        setLastSyncTime(new Date());
+
+        // Keep Express server bills cache synced for daily/monthly Excel exports
+        if (cloudBills.length > 0) {
+          fetch('/api/bills/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bills: cloudBills }),
+          }).catch(() => {});
+        }
+      },
+      (error) => {
+        console.error('Bills real-time sync error:', error);
+        setSyncStatus('error');
+        setSyncError(error.message);
+        handleFirestoreError(error, OperationType.LIST, 'bills');
+      }
+    );
+
+    // 5. Tables real-time listener
+    const unsubTables = onSnapshot(
+      collection(db, 'tables'),
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const cloudTables: Table[] = snapshot.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: Number(data.id ?? d.id),
+              name: String(data.name || `Table ${d.id}`),
+              capacity: Number(data.capacity || 4),
+              section: data.section || 'Lower Hall',
+              status: (data.status || 'available') as TableStatus,
+              activeOrderId: data.activeOrderId || undefined,
+              occupiedSince: data.occupiedSince || undefined,
+            };
+          });
+          cloudTables.sort((a, b) => a.id - b.id);
+          setTables(cloudTables);
+          setSyncStatus('connected');
+          setSyncError(null);
+          setLastSyncTime(new Date());
+        }
+      },
+      (error) => {
+        console.error('Tables real-time sync error:', error);
+        setSyncStatus('error');
+        setSyncError(error.message);
+        handleFirestoreError(error, OperationType.LIST, 'tables');
+      }
+    );
+
+    // 6. Menu items real-time listener
+    const unsubMenu = onSnapshot(
+      collection(db, 'menu_items'),
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const cloudItems: MenuItem[] = snapshot.docs.map((d) => normalizeMenuItem(d.data()));
+          setMenuItems(cloudItems);
+        }
+      },
+      (error) => {
+        console.warn('Menu items real-time sync error:', error);
+      }
+    );
+
+    // 7. Settings real-time listener
+    const unsubSettings = onSnapshot(
+      doc(db, 'settings', 'default'),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const cloudSettings = docSnap.data() as RestaurantSettings;
+          setSettings((prev) => ({ ...prev, ...cloudSettings }));
+        }
+      },
+      (error) => {
+        console.warn('Settings real-time sync error:', error);
+      }
+    );
+
+    return () => {
+      unsubOrders();
+      unsubKOTs();
+      unsubBills();
+      unsubTables();
+      unsubMenu();
+      unsubSettings();
+    };
+  }, []);
+
   // Sync and validate server session token on app startup / page refresh
   useEffect(() => {
     if (!currentUser) return;
@@ -977,7 +1145,8 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Owner-only bill deletion method with backend enforcement & audit logging
   const deleteBill = async (
-    billId: string
+    billId: string,
+    verification?: { ownerPassword?: string; reason?: string }
   ): Promise<{ success: boolean; message?: string }> => {
     if (!currentUser || !isOwner(currentUser)) {
       return {
@@ -1020,7 +1189,11 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           'Content-Type': 'application/json',
           ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
         },
-        body: JSON.stringify({ bill: billRecord }),
+        body: JSON.stringify({
+          bill: billRecord,
+          ownerPassword: verification?.ownerPassword,
+          reason: verification?.reason,
+        }),
       });
 
       const data = await res.json();
@@ -1047,7 +1220,11 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   'Content-Type': 'application/json',
                   Authorization: `Bearer ${authData.token}`,
                 },
-                body: JSON.stringify({ bill: billRecord }),
+                body: JSON.stringify({
+                  bill: billRecord,
+                  ownerPassword: verification?.ownerPassword,
+                  reason: verification?.reason,
+                }),
               });
               const retryData = await retryRes.json();
               if (retryRes.ok && retryData.success) {
@@ -1074,6 +1251,11 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           message: data.error || data.message || 'Server rejected bill deletion request.',
         };
       }
+
+      // Delete from Firestore Cloud Database
+      deleteDoc(doc(db, 'bills', billId)).catch((err) =>
+        handleFirestoreError(err, OperationType.DELETE, `bills/${billId}`)
+      );
 
       // Update local state and storage
       setBills((prev) => {
@@ -1164,6 +1346,17 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           message: data.error || data.message || 'Server rejected bill void request.',
         };
       }
+
+      // Persist void state to Firestore Cloud Database
+      updateDoc(doc(db, 'bills', billId), {
+        isVoided: true,
+        paymentStatus: 'voided',
+        voidedAt: new Date().toISOString(),
+        voidedBy: currentUser.name,
+        voidReason: cleanReason,
+      }).catch((err) =>
+        handleFirestoreError(err, OperationType.UPDATE, `bills/${billId}`)
+      );
 
       // Update state and storage
       setBills((prev) => {
@@ -1771,6 +1964,23 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
 
+    // Update table in Firestore Cloud Database
+    setDoc(
+      doc(db, 'tables', String(tableId)),
+      {
+        id: tableId,
+        name: `Table ${tableId}`,
+        status: 'available',
+        activeOrderId: '',
+        occupiedSince: '',
+      },
+      { merge: true }
+    ).catch((err) => handleFirestoreError(err, OperationType.UPDATE, `tables/${tableId}`));
+
+    if (targetOrderId) {
+      deleteDoc(doc(db, 'orders', targetOrderId)).catch(() => {});
+    }
+
     return true;
   };
 
@@ -1807,6 +2017,22 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
 
+    // Persist new order and occupied table to Firestore Cloud Database
+    setDoc(doc(db, 'orders', newOrder.id), newOrder).catch((err) =>
+      handleFirestoreError(err, OperationType.CREATE, `orders/${newOrder.id}`)
+    );
+    setDoc(
+      doc(db, 'tables', String(tableId)),
+      {
+        id: tableId,
+        name: `Table ${tableId}`,
+        status: 'occupied',
+        activeOrderId: newOrder.id,
+        occupiedSince: new Date().toISOString(),
+      },
+      { merge: true }
+    ).catch((err) => handleFirestoreError(err, OperationType.UPDATE, `tables/${tableId}`));
+
     return newOrder;
   };
 
@@ -1817,36 +2043,34 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       targetOrder = createOrGetOrderForTable(tableId);
     }
 
+    // Check if item with same ID and notes already exists
+    const existingItemIndex = targetOrder.items.findIndex(
+      (i) => i.menuItemId === menuItem.id && (i.notes || '') === (notes || '')
+    );
+
+    let updatedItems: OrderItem[];
+    if (existingItemIndex >= 0) {
+      updatedItems = targetOrder.items.map((item, idx) =>
+        idx === existingItemIndex ? { ...item, quantity: item.quantity + 1 } : item
+      );
+    } else {
+      const newItem: OrderItem = {
+        id: `oi-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        menuItemId: menuItem.id,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: 1,
+        isVeg: menuItem.isVeg ?? true,
+        notes: notes?.trim() || undefined,
+        kotSentQuantity: 0,
+      };
+      updatedItems = [...targetOrder.items, newItem];
+    }
+
+    const updatedOrder: Order = { ...targetOrder, items: updatedItems };
+
     setOrders((prevOrders) =>
-      prevOrders.map((ord) => {
-        if (ord.id !== targetOrder!.id) return ord;
-
-        // Check if item with same ID and notes already exists
-        const existingItemIndex = ord.items.findIndex(
-          (i) => i.menuItemId === menuItem.id && (i.notes || '') === (notes || '')
-        );
-
-        let updatedItems: OrderItem[];
-        if (existingItemIndex >= 0) {
-          updatedItems = ord.items.map((item, idx) =>
-            idx === existingItemIndex ? { ...item, quantity: item.quantity + 1 } : item
-          );
-        } else {
-          const newItem: OrderItem = {
-            id: `oi-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            menuItemId: menuItem.id,
-            name: menuItem.name,
-            price: menuItem.price,
-            quantity: 1,
-            isVeg: menuItem.isVeg ?? true,
-            notes: notes?.trim() || undefined,
-            kotSentQuantity: 0,
-          };
-          updatedItems = [...ord.items, newItem];
-        }
-
-        return { ...ord, items: updatedItems };
-      })
+      prevOrders.map((ord) => (ord.id === targetOrder!.id ? updatedOrder : ord))
     );
 
     // Ensure table is occupied
@@ -1862,10 +2086,27 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           : t
       )
     );
+
+    // Save updated order and table to Firestore Cloud Database
+    setDoc(doc(db, 'orders', targetOrder.id), updatedOrder).catch((err) =>
+      handleFirestoreError(err, OperationType.UPDATE, `orders/${targetOrder.id}`)
+    );
+    setDoc(
+      doc(db, 'tables', String(tableId)),
+      {
+        id: tableId,
+        name: `Table ${tableId}`,
+        status: 'occupied',
+        activeOrderId: targetOrder.id,
+        occupiedSince: targetOrder.createdAt || new Date().toISOString(),
+      },
+      { merge: true }
+    ).catch((err) => handleFirestoreError(err, OperationType.UPDATE, `tables/${tableId}`));
   };
 
   // Update item quantity
   const updateItemQuantity = (orderId: string, orderItemId: string, delta: number) => {
+    let orderToSave: Order | undefined;
     setOrders((prevOrders) =>
       prevOrders.map((ord) => {
         if (ord.id !== orderId) return ord;
@@ -1878,22 +2119,39 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           })
           .filter(Boolean) as OrderItem[];
 
-        return { ...ord, items: updatedItems };
+        const updated = { ...ord, items: updatedItems };
+        orderToSave = updated;
+        return updated;
       })
     );
+
+    if (orderToSave) {
+      setDoc(doc(db, 'orders', orderId), orderToSave).catch((err) =>
+        handleFirestoreError(err, OperationType.UPDATE, `orders/${orderId}`)
+      );
+    }
   };
 
   // Remove item completely
   const removeItemFromOrder = (orderId: string, orderItemId: string) => {
+    let orderToSave: Order | undefined;
     setOrders((prevOrders) =>
       prevOrders.map((ord) => {
         if (ord.id !== orderId) return ord;
-        return {
+        const updated = {
           ...ord,
           items: ord.items.filter((item) => item.id !== orderItemId),
         };
+        orderToSave = updated;
+        return updated;
       })
     );
+
+    if (orderToSave) {
+      setDoc(doc(db, 'orders', orderId), orderToSave).catch((err) =>
+        handleFirestoreError(err, OperationType.UPDATE, `orders/${orderId}`)
+      );
+    }
   };
 
   // Send KOT to Kitchen
@@ -1937,18 +2195,25 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setKots((prev) => [newKOT, ...prev]);
 
+    const updatedOrder: Order = {
+      ...order,
+      items: order.items.map((it) => ({
+        ...it,
+        kotSentQuantity: it.quantity,
+      })),
+    };
+
     // Update kotSentQuantity on order items
     setOrders((prevOrders) =>
-      prevOrders.map((ord) => {
-        if (ord.id !== orderId) return ord;
-        return {
-          ...ord,
-          items: ord.items.map((it) => ({
-            ...it,
-            kotSentQuantity: it.quantity,
-          })),
-        };
-      })
+      prevOrders.map((ord) => (ord.id === orderId ? updatedOrder : ord))
+    );
+
+    // Save KOT and updated order to Firestore Cloud Database
+    setDoc(doc(db, 'kots', newKOT.id), newKOT).catch((err) =>
+      handleFirestoreError(err, OperationType.CREATE, `kots/${newKOT.id}`)
+    );
+    setDoc(doc(db, 'orders', orderId), updatedOrder).catch((err) =>
+      handleFirestoreError(err, OperationType.UPDATE, `orders/${orderId}`)
     );
 
     return { success: true, kotNumber: nextKotNumber };
@@ -1958,6 +2223,10 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateKOTStatus = (kotId: string, status: KOTStatus) => {
     setKots((prev) =>
       prev.map((k) => (k.id === kotId ? { ...k, status } : k))
+    );
+
+    updateDoc(doc(db, 'kots', kotId), { status }).catch((err) =>
+      handleFirestoreError(err, OperationType.UPDATE, `kots/${kotId}`)
     );
   };
 
@@ -2228,7 +2497,30 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
 
-    // 4. Persist to backend server
+    // 4. Persist to Firestore Cloud Database (Orders, Bills, Tables)
+    setDoc(doc(db, 'bills', finalBill.id), finalBill).catch((err) =>
+      handleFirestoreError(err, OperationType.CREATE, `bills/${finalBill.id}`)
+    );
+    if (finalBill.orderId) {
+      updateDoc(doc(db, 'orders', finalBill.orderId), { status: 'paid' }).catch((err) =>
+        handleFirestoreError(err, OperationType.UPDATE, `orders/${finalBill.orderId}`)
+      );
+    }
+    setDoc(
+      doc(db, 'tables', String(finalBill.tableId)),
+      {
+        id: finalBill.tableId,
+        name: `Table ${finalBill.tableId}`,
+        status: 'available',
+        activeOrderId: '',
+        occupiedSince: '',
+      },
+      { merge: true }
+    ).catch((err) =>
+      handleFirestoreError(err, OperationType.UPDATE, `tables/${finalBill.tableId}`)
+    );
+
+    // 5. Persist to backend server
     fetch('/api/bills/settle', {
       method: 'POST',
       headers: {
@@ -2243,7 +2535,13 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Settings
   const updateSettings = (newSettings: Partial<RestaurantSettings>) => {
-    setSettings((prev) => ({ ...prev, ...newSettings }));
+    setSettings((prev) => {
+      const updated = { ...prev, ...newSettings };
+      setDoc(doc(db, 'settings', 'default'), updated, { merge: true }).catch((err) =>
+        handleFirestoreError(err, OperationType.UPDATE, 'settings/default')
+      );
+      return updated;
+    });
   };
 
   // Bluetooth Thermal Printer Methods
@@ -2474,6 +2772,13 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Menu items management (ONLY Owner can modify menu items, prices, and categories)
   const toggleMenuItemAvailability = (menuItemId: string) => {
     if (currentUser?.role !== 'owner') return;
+    const target = menuItems.find((m) => m.id === menuItemId);
+    if (target) {
+      const updated = { ...target, isAvailable: !target.isAvailable };
+      setDoc(doc(db, 'menu_items', menuItemId), updated, { merge: true }).catch((err) =>
+        handleFirestoreError(err, OperationType.UPDATE, `menu_items/${menuItemId}`)
+      );
+    }
     setMenuItems((prev) =>
       prev.map((m) => (m.id === menuItemId ? { ...m, isAvailable: !m.isAvailable } : m))
     );
@@ -2513,6 +2818,11 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setMenuItems((prev) => [...prev, newItem]);
+
+    setDoc(doc(db, 'menu_items', newItem.id), newItem).catch((err) =>
+      handleFirestoreError(err, OperationType.CREATE, `menu_items/${newItem.id}`)
+    );
+
     return { success: true, item: newItem };
   };
 
@@ -2534,22 +2844,26 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: 'Price must be a valid positive amount in ₹.' };
     }
 
+    const subcategory =
+      updates.subcategory !== undefined ? updates.subcategory.trim() : existing.subcategory;
+    const updated: MenuItem = {
+      ...existing,
+      ...updates,
+      section: updates.section !== undefined ? updates.section.trim() : existing.section,
+      subcategory,
+      category: updates.category || subcategory,
+      name: updates.name !== undefined ? updates.name.trim() : existing.name,
+      price: updates.price !== undefined ? Number(updates.price) : existing.price,
+    };
+
     setMenuItems((prev) =>
-      prev.map((m) => {
-        if (m.id !== menuItemId) return m;
-        const subcategory =
-          updates.subcategory !== undefined ? updates.subcategory.trim() : m.subcategory;
-        return {
-          ...m,
-          ...updates,
-          section: updates.section !== undefined ? updates.section.trim() : m.section,
-          subcategory,
-          category: updates.category || subcategory,
-          name: updates.name !== undefined ? updates.name.trim() : m.name,
-          price: updates.price !== undefined ? Number(updates.price) : m.price,
-        };
-      })
+      prev.map((m) => (m.id === menuItemId ? updated : m))
     );
+
+    setDoc(doc(db, 'menu_items', menuItemId), updated, { merge: true }).catch((err) =>
+      handleFirestoreError(err, OperationType.UPDATE, `menu_items/${menuItemId}`)
+    );
+
     return { success: true };
   };
 
@@ -2575,6 +2889,11 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: 'Menu item not found.' };
     }
     setMenuItems((prev) => prev.filter((m) => m.id !== menuItemId));
+
+    deleteDoc(doc(db, 'menu_items', menuItemId)).catch((err) =>
+      handleFirestoreError(err, OperationType.DELETE, `menu_items/${menuItemId}`)
+    );
+
     return { success: true };
   };
 
@@ -2967,6 +3286,9 @@ export const POSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteUser,
         resetEmployeePasswordSelf,
         fetchUsersFromServer,
+        syncStatus,
+        syncError,
+        lastSyncTime,
         floors,
         addFloor,
         editFloor,

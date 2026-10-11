@@ -106,6 +106,8 @@ export const ReportsView: React.FC = () => {
   // Modals & Action States
   const [selectedReceipt, setSelectedReceipt] = useState<Bill | null>(null);
   const [billToDelete, setBillToDelete] = useState<Bill | null>(null);
+  const [ownerDeletePassword, setOwnerDeletePassword] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
   const [billToVoid, setBillToVoid] = useState<Bill | null>(null);
   const [voidReasonInput, setVoidReasonInput] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -589,16 +591,25 @@ export const ReportsView: React.FC = () => {
   // Permanent Delete execution
   const handleConfirmDelete = async () => {
     if (!billToDelete) return;
+    if (!ownerDeletePassword.trim()) {
+      triggerNotification('error', 'Owner password is required to verify permanent bill deletion.');
+      return;
+    }
     setIsDeleting(true);
 
     try {
-      const res = await deleteBill(billToDelete.id);
+      const res = await deleteBill(billToDelete.id, {
+        ownerPassword: ownerDeletePassword.trim(),
+        reason: deleteReason.trim() || 'Deleted from Reports Ledger by verified Owner',
+      });
       if (res.success) {
         triggerNotification(
           'success',
           res.message || `Bill ${billToDelete.billNumber} permanently deleted and logged to owner audit ledger.`
         );
         setBillToDelete(null);
+        setOwnerDeletePassword('');
+        setDeleteReason('');
       } else {
         triggerNotification('error', res.message || 'Failed to delete bill.');
       }
@@ -1616,17 +1627,54 @@ export const ReportsView: React.FC = () => {
 
             <div className="p-5 space-y-4">
               <p className="text-xs text-neutral-600 leading-relaxed">
-                You are about to permanently delete bill <span className="font-bold text-neutral-900">{billToDelete.billNumber}</span>. This action permanently logs to the immutable audit trail.
+                You are about to permanently delete bill <span className="font-bold text-neutral-900">{billToDelete.billNumber}</span>. This sensitive action permanently removes the record across all devices and logs to the immutable audit trail.
               </p>
 
               <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200 space-y-1.5 text-xs">
                 <div className="flex justify-between">
                   <span className="text-neutral-500">Invoice:</span>
-                  <span className="font-mono font-bold">{billToDelete.billNumber}</span>
+                  <span className="font-mono font-bold text-neutral-900">{billToDelete.billNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Table:</span>
+                  <span className="font-medium text-neutral-800">Table {billToDelete.tableId}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-neutral-500">Grand Total:</span>
-                  <span className="font-mono font-bold">{formatRupees(billToDelete.grandTotal)}</span>
+                  <span className="font-mono font-bold text-neutral-900">{formatRupees(billToDelete.grandTotal)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Cashier:</span>
+                  <span className="text-neutral-700">{billToDelete.cashierName}</span>
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="block text-xs font-bold text-neutral-800 mb-1">
+                    Owner Password / Verification Credential <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={ownerDeletePassword}
+                    onChange={(e) => setOwnerDeletePassword(e.target.value)}
+                    placeholder="Enter Owner password (e.g. Kite@29)"
+                    className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500 font-mono"
+                  />
+                  <p className="text-[10px] text-neutral-400 mt-0.5">Required to confirm owner identity before deletion.</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                    Reason for Deletion
+                  </label>
+                  <input
+                    type="text"
+                    value={deleteReason}
+                    onChange={(e) => setDeleteReason(e.target.value)}
+                    placeholder="e.g. Duplicate test bill during training"
+                    className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
+                  />
                 </div>
               </div>
             </div>
@@ -1634,20 +1682,24 @@ export const ReportsView: React.FC = () => {
             <div className="p-4 bg-neutral-50 border-t border-neutral-200 flex items-center justify-end gap-2.5">
               <button
                 type="button"
-                onClick={() => setBillToDelete(null)}
+                onClick={() => {
+                  setBillToDelete(null);
+                  setOwnerDeletePassword('');
+                  setDeleteReason('');
+                }}
                 disabled={isDeleting}
-                className="px-3.5 py-2 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-100 rounded-lg"
+                className="px-3.5 py-2 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-100 rounded-lg cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDelete}
-                disabled={isDeleting}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-xs disabled:opacity-50"
+                disabled={isDeleting || !ownerDeletePassword.trim()}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-xs disabled:opacity-50 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{isDeleting ? 'Deleting Bill...' : 'Confirm & Delete'}</span>
+                <span>{isDeleting ? 'Verifying & Deleting...' : 'Confirm & Delete'}</span>
               </button>
             </div>
           </div>

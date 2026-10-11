@@ -241,4 +241,5 @@ export interface RestaurantSettings {
   printerPaperWidth?: PrinterPaperWidth;
   printerMode?: PrinterMode;
   savedBluetoothDeviceName?: string;
+  logoUrl?: string;
 }

@@ -16,6 +16,9 @@ import {
   Sparkles,
   Users,
   SlidersHorizontal,
+  Cloud,
+  CloudOff,
+  RefreshCw,
 } from 'lucide-react';
 import { usePOS, AppView } from '../context/POSContext';
 import { UserRole } from '../types/pos';
@@ -38,6 +41,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSettings }) => {
     orders,
     users,
     settings,
+    syncStatus,
+    syncError,
   } = usePOS();
 
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
@@ -144,6 +149,30 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSettings }) => {
 
           {/* Zone 3: 1-2 primary actions & User Role selector */}
           <div className="flex items-center gap-2.5">
+            {/* Live Cloud Multi-Device Sync Indicator */}
+            <div
+              className="hidden sm:flex items-center"
+              title={syncError ? `Sync Error: ${syncError}` : 'Live Real-Time Cloud Synchronization active across all PCs and phones'}
+            >
+              {syncStatus === 'connected' ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-emerald-200 bg-emerald-50/90 text-emerald-800 text-[11px] font-semibold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="font-mono text-[10px] tracking-tight">Cloud Synced</span>
+                </span>
+              ) : syncStatus === 'syncing' ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-[11px] font-semibold">
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-600 animate-spin" />
+                  <span className="font-mono text-[10px] tracking-tight">Syncing...</span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-[11px] font-semibold">
+                  <CloudOff className="w-3.5 h-3.5 text-rose-600" />
+                  <span className="font-mono text-[10px] tracking-tight">Offline</span>
+                </span>
+              )}
+            </div>
+
             {/* Authenticated User Badge & Profile Menu */}
             <div className="relative">
               <button

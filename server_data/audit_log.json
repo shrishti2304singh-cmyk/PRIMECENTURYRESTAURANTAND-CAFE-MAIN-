@@ -1,5 +1,80 @@
 [
   {
+    "id": "audit-1791647221470-9be1dc8b",
+    "action": "BILL_DELETION",
+    "billId": "bill-test-sec-1000",
+    "billNumber": "INV-TEST-1000",
+    "grandTotal": 252,
+    "grandTotalPaise": 25200,
+    "paymentMethod": "cash",
+    "tableId": 3,
+    "cashierName": "Amit Kumar",
+    "paidAt": "2026-10-10T15:47:01.446Z",
+    "deletedAt": "2026-10-10T15:47:01.470Z",
+    "deletedByUserId": "usr-admin",
+    "deletedByUsername": "admin",
+    "deletedByName": "PRIMECENTURY RESTAURANT & CAFE",
+    "reason": "Verified test bill cleanup",
+    "itemsCount": 1,
+    "items": [
+      {
+        "id": "it-1",
+        "menuItemId": "m1",
+        "name": "Dal Makhani",
+        "price": 240,
+        "quantity": 1,
+        "isVeg": true,
+        "kotSentQuantity": 1
+      }
+    ]
+  },
+  {
+    "id": "audit-1791647205749-8efbbe8b",
+    "action": "BILL_DELETION",
+    "billId": "bill-test-sec-999",
+    "billNumber": "INV-TEST-9999",
+    "grandTotal": 588,
+    "grandTotalPaise": 58800,
+    "paymentMethod": "cash",
+    "tableId": 5,
+    "cashierName": "Amit Kumar",
+    "paidAt": "2026-10-10T15:46:45.738Z",
+    "deletedAt": "2026-10-10T15:46:45.749Z",
+    "deletedByUserId": "usr-admin",
+    "deletedByUsername": "admin",
+    "deletedByName": "PRIMECENTURY RESTAURANT & CAFE",
+    "itemsCount": 1,
+    "items": [
+      {
+        "id": "it-1",
+        "menuItemId": "m1",
+        "name": "Paneer Butter Masala",
+        "price": 280,
+        "quantity": 2,
+        "isVeg": true,
+        "kotSentQuantity": 2
+      }
+    ]
+  },
+  {
+    "id": "audit-1791646362358-534bc3ba",
+    "action": "BILL_DELETION",
+    "billId": "bad-bill",
+    "billNumber": "INV-BAD",
+    "grandTotal": -50,
+    "grandTotalPaise": -5000,
+    "paymentMethod": "cash",
+    "tableId": 1,
+    "cashierName": "Cashier",
+    "paidAt": "2026-10-10T15:07:30.613Z",
+    "deletedAt": "2026-10-10T15:32:42.358Z",
+    "deletedByUserId": "usr-admin",
+    "deletedByUsername": "admin",
+    "deletedByName": "PRIMECENTURY RESTAURANT & CAFE",
+    "itemsCount": 0,
+    "items": []
+  },
+  {
     "id": "audit-1791569483200-d13dabd8",
     "action": "BILL_VOID",
     "billId": "test-bill-1791569483168",

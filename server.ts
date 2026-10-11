@@ -1538,15 +1538,40 @@ async function startServer() {
         return res.status(400).json({ success: false, error: 'Bill ID is required' });
       }
 
+      const { ownerPassword, reason, bill: clientBill } = req.body || {};
+
+      // Enforce owner reauthentication password verification
+      const cleanOwnerPassword = String(ownerPassword || '').trim();
+      if (!cleanOwnerPassword) {
+        return res.status(400).json({
+          success: false,
+          error: 'Owner verification credential (password) is required for sensitive bill deletion.',
+        });
+      }
+
+      const users: User[] = readJsonFile(USERS_FILE, INITIAL_USERS);
+      const ownerUser =
+        users.find((u) => u.id === req.user!.userId) ||
+        users.find((u) => u.username.toLowerCase() === req.user!.username.toLowerCase()) ||
+        users.find(isOwner);
+
+      if (!ownerUser || !verifyPassword(cleanOwnerPassword, ownerUser.passwordHash)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Authentication failed: Invalid Owner verification password. Deletion rejected.',
+        });
+      }
+
       const allBills: Bill[] = readJsonFile(BILLS_FILE, []).map(normalizeBillFinancials);
       const targetBill = allBills.find((b) => b.id === billId);
 
-      const clientBill = req.body?.bill;
       const billRecord = targetBill || (clientBill && clientBill.id === billId ? normalizeBillFinancials(clientBill) : null);
 
       if (!billRecord) {
         return res.status(404).json({ success: false, error: 'Bill not found' });
       }
+
+      const cleanReason = String(reason || 'Permanently deleted by Owner with verified credential').trim();
 
       const auditLog = readJsonFile<any[]>(AUDIT_FILE, []);
       const auditEntry = {
@@ -1564,6 +1589,7 @@ async function startServer() {
         deletedByUserId: req.user!.userId,
         deletedByUsername: req.user!.username,
         deletedByName: req.user!.name,
+        reason: cleanReason,
         itemsCount: (billRecord.items || []).length,
         items: billRecord.items,
       };
@@ -1574,7 +1600,7 @@ async function startServer() {
       writeJsonAtomic(BILLS_FILE, remainingBills);
 
       console.log(
-        `[AUDIT] Bill ${billRecord.billNumber} deleted by Owner ${req.user!.name} (${req.user!.username})`
+        `[AUDIT] Bill ${billRecord.billNumber} permanently deleted by Owner ${req.user!.name} (${req.user!.username}). Reason: "${cleanReason}"`
       );
 
       return res.json({
